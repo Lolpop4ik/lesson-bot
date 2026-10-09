@@ -1,0 +1,28 @@
+name: join
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        required: true
+      name:
+        required: true
+jobs:
+  join:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright && playwright install --with-deps chromium
+      - run: python join.py
+        env:
+          MEET_URL: ${{ inputs.url }}
+          MEET_NAME: ${{ inputs.name }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: "*.png"
+          if-no-files-found: ignore
