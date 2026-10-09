@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 
 URL = os.environ["MEET_URL"]
 NAME = os.environ["MEET_NAME"]
-STAY_MINUTES = 45
+STAY_MINUTES = 2
 
 async def main():
     async with async_playwright() as p:
