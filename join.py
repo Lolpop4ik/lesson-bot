@@ -4,6 +4,24 @@ from playwright.async_api import async_playwright
 URL = os.environ["MEET_URL"]
 NAME = os.environ["MEET_NAME"]
 STAY_MINUTES = 1  # для теста; потом поставь 45
+log = []
+
+def save():
+    with open("dump.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(log))
+
+async def dump(page, tag):
+    info = await page.evaluate("""() => {
+        const q = s => [...document.querySelectorAll(s)];
+        return {
+            buttons: q('button,[role=button]').map(e =>
+                (e.getAttribute('aria-label') || '') + ' | ' + (e.innerText || '').trim().slice(0, 40)),
+            inputs: q('input,textarea,[contenteditable]').map(e =>
+                e.tagName + ' | ' + (e.placeholder || '') + ' | ' + (e.getAttribute('aria-label') || '')),
+        };
+    }""")
+    log.append(f"== {tag}\n{info}\n")
+    save()
 
 async def main():
     async with async_playwright() as p:
@@ -16,39 +34,39 @@ async def main():
         try:
             await page.goto(URL, wait_until="domcontentloaded")
             await page.wait_for_timeout(6000)
+            await dump(page, "start")
 
-            # Если вдруг предложат продолжить в браузере: необязательный шаг
             try:
-                await page.click("text=Продолжить в браузере", timeout=3000)
-                await page.wait_for_timeout(3000)
-            except Exception:
-                pass
+                await page.get_by_text("Гость").first.click(timeout=5000)
+                await page.wait_for_timeout(1000)
+            except Exception as e:
+                log.append(f"click on name failed: {e}")
+            await page.screenshot(path="2_after_click_name.png")
+            await dump(page, "after click on name")
 
-            await page.screenshot(path="1_before_name.png")
-
-            # Меняем имя: кликаем на «Гость» и печатаем своё
-            try:
-                await page.get_by_text("Гость", exact=True).click(timeout=5000)
-                await page.keyboard.press("Control+A")
-                await page.keyboard.type(NAME)
-                await page.keyboard.press("Enter")
-            except Exception:
-                await page.locator("input[type='text']").first.fill(NAME, timeout=5000)
-
+            fields = page.locator("input[type='text'], input:not([type]), [contenteditable='true']")
+            if await fields.count() > 0:
+                try:
+                    await fields.first.fill(NAME)
+                    await page.keyboard.press("Enter")
+                except Exception as e:
+                    log.append(f"fill name failed: {e}")
             await page.wait_for_timeout(1000)
-            await page.screenshot(path="2_after_name.png")
+            await page.screenshot(path="3_after_name.png")
+            await dump(page, "after name")
 
-            # Нажимаем «Подключиться» (если Enter уже подключил, пропускаем)
             try:
                 await page.get_by_role("button", name="Подключиться").click(timeout=5000)
-            except Exception:
-                pass
-
+            except Exception as e:
+                log.append(f"join click failed: {e}")
             await page.wait_for_timeout(8000)
-            await page.screenshot(path="3_after_join.png")
+            await page.screenshot(path="4_after_join.png")
+            await dump(page, "after join")
 
             await asyncio.sleep(STAY_MINUTES * 60)
-        except Exception:
+        except Exception as e:
+            log.append(f"FATAL: {e}")
+            save()
             await page.screenshot(path="error.png")
             raise
         finally:
