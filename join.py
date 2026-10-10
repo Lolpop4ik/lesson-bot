@@ -11,17 +11,33 @@ def save():
         f.write("\n".join(log))
 
 async def dump(page, tag):
-    info = await page.evaluate("""() => {
-        const q = s => [...document.querySelectorAll(s)];
-        return {
-            buttons: q('button,[role=button]').map(e =>
-                (e.getAttribute('aria-label') || '') + ' | ' + (e.innerText || '').trim().slice(0, 40)),
-            inputs: q('input,textarea,[contenteditable]').map(e =>
-                e.tagName + ' | ' + (e.placeholder || '') + ' | ' + (e.getAttribute('aria-label') || '')),
-        };
-    }""")
-    log.append(f"== {tag}\n{info}\n")
+    for i, fr in enumerate(page.frames):
+        try:
+            info = await fr.evaluate("""() => {
+                const q = s => [...document.querySelectorAll(s)];
+                return {
+                    url: location.href.slice(0, 80),
+                    buttons: q('button,[role=button]').map(e =>
+                        (e.getAttribute('aria-label') || '') + ' | ' + (e.innerText || '').trim().slice(0, 40)),
+                    inputs: q('input,textarea,[contenteditable]').map(e =>
+                        e.tagName + ' | ' + (e.placeholder || '') + ' | ' + (e.getAttribute('aria-label') || '')),
+                };
+            }""")
+            log.append(f"== {tag} / frame {i}\n{info}\n")
+        except Exception as e:
+            log.append(f"== {tag} / frame {i} error: {e}\n")
     save()
+
+async def find_join_frame(page):
+    for _ in range(20):
+        for fr in page.frames:
+            try:
+                if await fr.get_by_text("Подключиться").count() > 0:
+                    return fr
+            except Exception:
+                pass
+        await page.wait_for_timeout(1000)
+    return None
 
 async def main():
     async with async_playwright() as p:
@@ -33,18 +49,36 @@ async def main():
         page = await context.new_page()
         try:
             await page.goto(URL, wait_until="domcontentloaded")
-            await page.wait_for_timeout(6000)
+            await page.wait_for_timeout(5000)
+            fr = await find_join_frame(page)
+            log.append(f"join frame found: {fr is not None}")
             await dump(page, "start")
+            if fr is None:
+                raise Exception("join frame not found")
 
+            # выключаем микрофон и камеру
+            for label in ("Выключить микрофон", "Выключить камеру"):
+                for target in (fr, page):
+                    try:
+                        await target.get_by_role("button", name=label).first.click(timeout=2000)
+                        log.append(f"clicked: {label}")
+                        break
+                    except Exception:
+                        pass
+            await page.wait_for_timeout(1000)
+            await page.screenshot(path="2_after_mute.png")
+            await dump(page, "after mute")
+
+            # имя
             try:
-                await page.get_by_text("Гость").first.click(timeout=5000)
+                await fr.get_by_text("Гость", exact=True).first.click(timeout=5000)
                 await page.wait_for_timeout(1000)
             except Exception as e:
                 log.append(f"click on name failed: {e}")
-            await page.screenshot(path="2_after_click_name.png")
+            await page.screenshot(path="3_after_click_name.png")
             await dump(page, "after click on name")
 
-            fields = page.locator("input[type='text'], input:not([type]), [contenteditable='true']")
+            fields = fr.locator("input, [contenteditable='true']")
             if await fields.count() > 0:
                 try:
                     await fields.first.fill(NAME)
@@ -52,15 +86,18 @@ async def main():
                 except Exception as e:
                     log.append(f"fill name failed: {e}")
             await page.wait_for_timeout(1000)
-            await page.screenshot(path="3_after_name.png")
-            await dump(page, "after name")
+            await page.screenshot(path="4_after_name.png")
 
+            # вход
             try:
-                await page.get_by_role("button", name="Подключиться").click(timeout=5000)
-            except Exception as e:
-                log.append(f"join click failed: {e}")
+                await fr.get_by_role("button", name="Подключиться").first.click(timeout=5000)
+            except Exception:
+                try:
+                    await fr.get_by_text("Подключиться").first.click(timeout=5000)
+                except Exception as e:
+                    log.append(f"join click failed: {e}")
             await page.wait_for_timeout(8000)
-            await page.screenshot(path="4_after_join.png")
+            await page.screenshot(path="5_after_join.png")
             await dump(page, "after join")
 
             await asyncio.sleep(STAY_MINUTES * 60)
