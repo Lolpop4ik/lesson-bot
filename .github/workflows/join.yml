@@ -6,10 +6,13 @@ on:
         required: true
       name:
         required: true
+      minutes:
+        required: false
+        default: "45"
 jobs:
   join:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 200
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,6 +23,7 @@ jobs:
         env:
           MEET_URL: ${{ inputs.url }}
           MEET_NAME: ${{ inputs.name }}
+          STAY_MINUTES: ${{ inputs.minutes }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
